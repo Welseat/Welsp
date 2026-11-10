@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == "admin";
+    }
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+    match /partners/{uid} {
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.approved == false
+        && request.resource.data.status == "Pending";
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["upi","accHolder","bankName","accNo","ifsc"]));
+      allow delete: if isAdmin();
+    }
+    match /leads/{leadId} {
+      allow create: if signedIn()
+        && request.resource.data.partnerUid == request.auth.uid
+        && get(/databases/$(database)/documents/partners/$(request.auth.uid)).data.approved == true;
+      allow read: if isAdmin() || (signedIn() && resource.data.partnerUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+  }
+}
